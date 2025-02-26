@@ -1,0 +1,38 @@
+#############################
+# Stage 1: Build Delve binary
+#############################
+FROM golang:1.23-alpine AS builder-delve
+RUN apk add --no-cache gcc musl-dev
+ENV GOPATH=/go
+ENV PATH="${GOPATH}/bin:${PATH}"
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
+#############################
+# Stage 2: Build your application
+#############################
+FROM golang:1.23-alpine AS builder-app
+# Install app build dependencies if necessary.
+WORKDIR /app
+COPY . .
+# Build the application (adjust the command/path as needed).
+RUN CGO_ENABLED=0 go build -o frontend ./cmd/frontend
+
+#############################
+# Stage 3: Final Image
+#############################
+FROM alpine:latest
+# Install runtime dependencies.
+RUN apk add --no-cache bash socat git ca-certificates patch
+
+# Copy the Delve binary from the builder stage.
+COPY --from=builder-delve /go/bin/dlv /usr/local/bin/dlv
+
+# Copy your built application.
+WORKDIR /app
+COPY --from=builder-app /app/frontend .
+
+# Expose ports (app port and Delve's debug port).
+EXPOSE 30157 2345
+
+# Set the ENTRYPOINT for your application.
+ENTRYPOINT ["/app/frontend", "serve", "--config", "/app/config.yaml"]
